@@ -103,21 +103,29 @@ class Darknet(nn.Module):
         super(Darknet, self).__init__()
         # 解析 配置文件
         self.blocks = parse_cfg(cfgfile)
-        # 根据解析结果List 构建pytorch模型
-        self.models = self.create_network(self.blocks)  # merge conv, bn,leaky
-        # 定义损失函数
+        # 根据解析结果List 构建pytorch模型  最后一层为YoloLayer
+        self.models = self.create_network(self.blocks)
+        # 损失loss =  models的最后一层，即YoloLayer
         self.loss = self.models[len(self.models) - 1]
         # 设定 训练图像的尺度
         self.width = int(self.blocks[0]['width'])
         self.height = int(self.blocks[0]['height'])
-        # ？？？
+        # 推理阶段  type='yolo'，故if条件不成立，未使用
         if self.blocks[(len(self.blocks) - 1)]['type'] == 'region':
             self.anchors = self.loss.anchors
             self.num_anchors = self.loss.num_anchors
             self.anchor_step = self.loss.anchor_step
             self.num_classes = self.loss.num_classes
-        # 加载 预训练权重时用到  header：文件头，保存相关标题信息   seen:训练期间网络看过多少张图像得到的该权重
+        # 加载 预训练权重时用到  header：文件头，保存相关标题信息(先初始化0)
+        '''
+        文件头与Darknet框架相关，不重要
+        1. Major version number(主版本号)
+        2. Minor Version Number(最低版本号)
+        3. Subversion number
+        4, Images seen by the network (during training)
+        '''
         self.header = torch.IntTensor([0, 0, 0, 0])
+        # 加载 预训练权重时用到  seen:训练期间网络看过多少张图像得到的该权重
         self.seen = 0
 
     def forward(self, x):
@@ -194,27 +202,37 @@ class Darknet(nn.Module):
         print_cfg(self.blocks)
 
     def create_network(self, blocks):
+        '''
+        根据解析结果List 构建pytorch模型
+        '''
+        # 新建个 模型List
         models = nn.ModuleList()
 
         prev_filters = 3
-        out_filters = []
+        out_filters = [] # 某模块的输出通道数
         prev_stride = 1
         out_strides = []
         conv_id = 0
         for block in blocks:
+            #
             if block['type'] == 'net':
-                prev_filters = int(block['channels'])
+                prev_filters = int(block['channels']) # 输入图像的通道数
                 continue
             elif block['type'] == 'convolutional':
+                '''
+                每个卷积层后都会跟一个BN层和一个 激活函数，算作list中的一行
+                '''
                 conv_id = conv_id + 1
                 batch_normalize = int(block['batch_normalize'])
                 filters = int(block['filters'])
                 kernel_size = int(block['size'])
                 stride = int(block['stride'])
+                # pad = 1 表示 使用pad,但是具体pad值时按照kernel_size计算的
                 is_pad = int(block['pad'])
                 pad = (kernel_size - 1) // 2 if is_pad else 0
                 activation = block['activation']
                 model = nn.Sequential()
+                # bn=1 表示 使用bn,具体值为 输出通道数
                 if batch_normalize:
                     model.add_module('conv{0}'.format(conv_id),
                                      nn.Conv2d(prev_filters, filters, kernel_size, stride, pad, bias=False))
@@ -223,6 +241,7 @@ class Darknet(nn.Module):
                 else:
                     model.add_module('conv{0}'.format(conv_id),
                                      nn.Conv2d(prev_filters, filters, kernel_size, stride, pad))
+                # activation是 具体激活函数
                 if activation == 'leaky':
                     model.add_module('leaky{0}'.format(conv_id), nn.LeakyReLU(0.1, inplace=True))
                 elif activation == 'relu':
@@ -255,6 +274,9 @@ class Darknet(nn.Module):
                 out_filters.append(prev_filters)
                 models.append(model)
             elif block['type'] == 'cost':
+                '''
+                构建 损失函数
+                '''
                 if block['_type'] == 'sse':
                     model = nn.MSELoss(size_average=True)
                 elif block['_type'] == 'L1':
@@ -265,6 +287,9 @@ class Darknet(nn.Module):
                 out_strides.append(prev_stride)
                 models.append(model)
             elif block['type'] == 'reorg':
+                '''
+                ???
+                '''
                 stride = int(block['stride'])
                 prev_filters = stride * stride * prev_filters
                 out_filters.append(prev_filters)
@@ -272,6 +297,10 @@ class Darknet(nn.Module):
                 out_strides.append(prev_stride)
                 models.append(Reorg(stride))
             elif block['type'] == 'upsample':
+                '''
+                上采样与rount搭配使用
+                上采样将feature map变大，然后与 之前的较大feature map在深度上合并
+                '''
                 stride = int(block['stride'])
                 out_filters.append(prev_filters)
                 prev_stride = prev_stride // stride
@@ -279,6 +308,9 @@ class Darknet(nn.Module):
                 # models.append(nn.Upsample(scale_factor=stride, mode='nearest'))
                 models.append(Upsample(stride))
             elif block['type'] == 'route':
+                '''
+                route 指 按照列来合并tensor,即扩展深度
+                '''
                 layers = block['layers'].split(',')
                 ind = len(models)
                 layers = [int(i) if int(i) > 0 else int(i) + ind for i in layers]
@@ -301,6 +333,9 @@ class Darknet(nn.Module):
                 out_strides.append(prev_stride)
                 models.append(EmptyModule())
             elif block['type'] == 'shortcut':
+                '''
+                shortcut 指  残差结构，卷积的跨层连接，即 将不同两层输出（即输出+残差块）逐元素相加 为 最后结果
+                '''
                 ind = len(models)
                 prev_filters = out_filters[ind - 1]
                 out_filters.append(prev_filters)
@@ -361,6 +396,7 @@ class Darknet(nn.Module):
 
     def load_weights(self, weightfile):
         fp = open(weightfile, 'rb')
+        # 从文本或二进制文件中的数据构造数组。 count:读取的项目数  dtype:返回数组的数据类型
         header = np.fromfile(fp, count=5, dtype=np.int32)
         self.header = torch.from_numpy(header)
         self.seen = self.header[3]

@@ -23,10 +23,12 @@ def detect(cfgfile, weightfile, imgfile):
 
     # 默认使用 coco类别
     namesfile = 'data/coco.names'
-    # 默认CPU，不使用cuda
+
+    # 默认CPU
     use_cuda = 0
     if use_cuda:
         m.cuda()
+
     # 读取 测试图片并转为 RGB通道
     img = Image.open(imgfile).convert('RGB')
     # 测试图像 调整尺度，以便输入网络
@@ -34,6 +36,7 @@ def detect(cfgfile, weightfile, imgfile):
     # 统计第二次运行结果 的时间更稳定，更具代表性？
     for i in range(2):
         start = time.time()
+        #默认CPU
         boxes = do_detect(m, sized, 0.5, 0.4, use_cuda)
         finish = time.time()
         if i == 1:
@@ -41,12 +44,13 @@ def detect(cfgfile, weightfile, imgfile):
     # 加载类别名称，为 bbox打类别标签
     class_names = load_class_names(namesfile)
     # 将bbox及类别 绘制到 测试图像并保存
-    plot_boxes(img, boxes, 'predictions.jpg', class_names)
+    plot_boxes(img, boxes, 'img/predictions.jpg', class_names)
 
 if __name__ == '__main__':
+
     cfgfile='cfg/yolov4.cfg' # 网络框架配置文件
     weightfile='yolov4.weights' # 预训练权重
-    imgfile='bo.jpg' # 测试图像路径
+    imgfile='img/dog.jpg' # 测试图像路径
     # 开始检测
     detect(cfgfile, weightfile, imgfile)
 

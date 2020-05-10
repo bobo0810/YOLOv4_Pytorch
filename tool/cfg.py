@@ -49,6 +49,9 @@ def parse_cfg(cfgfile):
 
 
 def print_cfg(blocks):
+    '''
+    打印网络框架信息（每层网络结构、卷积核数、输入特征图尺度及通道数、输出特征图尺度及通道数）
+    '''
     print('layer     filters    size              input                output');
     prev_width = 416
     prev_height = 416

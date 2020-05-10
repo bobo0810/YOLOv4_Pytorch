@@ -423,6 +423,15 @@ def image2torch(img):
 
 
 def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
+    '''
+    预测阶段
+    :param model: 模型
+    :param img: 预测图像
+    :param conf_thresh: 类别阈值
+    :param nms_thresh:  非极大值抑制阈值，用于去掉 重复且较低质量的bbox
+    :param use_cuda:   0:CPU   1:GPU
+    '''
+    # 调整为 预测模式，不记录梯度
     model.eval()
     t0 = time.time()
 
@@ -431,7 +440,9 @@ def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
         height = img.height
         img = torch.ByteTensor(torch.ByteStorage.from_buffer(img.tobytes()))
         img = img.view(height, width, 3).transpose(0, 1).transpose(0, 2).contiguous()
+        # batch:1  channel:3
         img = img.view(1, 3, height, width)
+        # 除以255，归一化
         img = img.float().div(255.0)
     elif type(img) == np.ndarray and len(img.shape) == 3:  # cv2 image
         img = torch.from_numpy(img.transpose(2, 0, 1)).float().div(255.0).unsqueeze(0)
@@ -445,6 +456,7 @@ def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
 
     if use_cuda:
         img = img.cuda()
+    # Variable与tensor已经合并，我以后修改
     img = torch.autograd.Variable(img)
     t2 = time.time()
 
@@ -473,6 +485,7 @@ def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
     else:
         boxes = boxes[0][0] + boxes[1][0] + boxes[2][0]
         t3 = time.time()
+        # pytorch现已提供 原生NMS方法，我以后修改
         boxes = nms(boxes, nms_thresh)
     t4 = time.time()
 
