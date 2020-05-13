@@ -1,21 +1,9 @@
-# -*- coding: utf-8 -*-
-'''
-@Time          : 20/04/25 15:49
-@Author        : huguanghao
-@File          : demo.py
-@Noice         :
-@Modificattion :
-    @Author    :
-    @Time      :
-    @Detail    :
-
-'''
 from utils.utils import *
 from tool.darknet2pytorch import Darknet
 def detect(cfgfile, weightfile, imgfile):
     # 根据 配置文件 初始化网络
     m = Darknet(cfgfile)
-    # 打印网络
+    # 打印网络框架信息（每层网络结构、卷积核数、输入特征图尺度及通道数、输出特征图尺度及通道数）
     m.print_network()
     # 加载 模型权重
     m.load_weights(weightfile)
@@ -33,7 +21,7 @@ def detect(cfgfile, weightfile, imgfile):
     img = Image.open(imgfile).convert('RGB')
     # 测试图像 调整尺度，以便输入网络
     sized = img.resize((m.width, m.height))
-    # 统计第二次运行结果 的时间更稳定，更具代表性？
+    # 统计第二次运行结果 的时间更稳定，更具代表性
     for i in range(2):
         start = time.time()
         #默认CPU
@@ -48,7 +36,7 @@ def detect(cfgfile, weightfile, imgfile):
 
 if __name__ == '__main__':
 
-    cfgfile='cfg/yolov4.cfg' # 网络框架配置文件
+    cfgfile='tool/yolov4.cfg' # 网络框架配置文件
     weightfile='yolov4.weights' # 预训练权重
     imgfile='img/dog.jpg' # 测试图像路径
     # 开始检测

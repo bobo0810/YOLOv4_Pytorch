@@ -53,15 +53,20 @@ def print_cfg(blocks):
     打印网络框架信息（每层网络结构、卷积核数、输入特征图尺度及通道数、输出特征图尺度及通道数）
     '''
     print('layer     filters    size              input                output');
+    # 每个模块输入的特征图尺度
     prev_width = 416
     prev_height = 416
     prev_filters = 3
+    # 记录每一层的 卷积通道数
     out_filters = []
+    # 记录每一层的 输出特征图尺度
     out_widths = []
     out_heights = []
+    # 网络层数计数
     ind = -2
     for block in blocks:
         ind = ind + 1
+        # net模块 规定输入图像的尺度，不算网络层数
         if block['type'] == 'net':
             prev_width = int(block['width'])
             prev_height = int(block['height'])
@@ -71,7 +76,9 @@ def print_cfg(blocks):
             kernel_size = int(block['size'])
             stride = int(block['stride'])
             is_pad = int(block['pad'])
+            # 计算需要pad的数值
             pad = (kernel_size - 1) // 2 if is_pad else 0
+            # 计算 卷积之后的 特征图尺度
             width = (prev_width + 2 * pad - kernel_size) // stride + 1
             height = (prev_height + 2 * pad - kernel_size) // stride + 1
             print('%5d %-6s %4d  %d x %d / %d   %3d x %3d x%4d   ->   %3d x %3d x%4d' % (
@@ -201,8 +208,18 @@ def print_cfg(blocks):
 
 
 def load_conv(buf, start, conv_model):
+    '''
+    加载 yolov4.weights 中卷积层的预训练权重
+    :param buf: yolov4.weights权重
+    :param start: 该卷积层权重 位于yolov4.weights的位置下标处
+    :param conv_model: 该层卷积层参数
+    :return:
+    '''
+    # numel()  返回tensor的元素个数
+    # num_w卷积层的权重个数    num_b偏置项个数
     num_w = conv_model.weight.numel()
     num_b = conv_model.bias.numel()
+    #  读取卷积层 权重(有 偏置项)
     conv_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]));
     start = start + num_b
     conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]).reshape(conv_model.weight.data.shape));
@@ -210,18 +227,21 @@ def load_conv(buf, start, conv_model):
     return start
 
 
-def save_conv(fp, conv_model):
-    if conv_model.bias.is_cuda:
-        convert2cpu(conv_model.bias.data).numpy().tofile(fp)
-        convert2cpu(conv_model.weight.data).numpy().tofile(fp)
-    else:
-        conv_model.bias.data.numpy().tofile(fp)
-        conv_model.weight.data.numpy().tofile(fp)
-
 
 def load_conv_bn(buf, start, conv_model, bn_model):
+    '''
+    加载 yolov4.weights 中卷积层和BN的预训练权重
+    :param buf:   yolov4.weights权重
+    :param start:   该卷积层权重 位于yolov4.weights的位置下标处
+    :param conv_model: 该层卷积层参数
+    :param bn_model: BN参数
+    :return:
+    '''
+    # numel()  返回tensor的元素个数
+    # num_w卷积层的权重个数    num_b偏置项个数
     num_w = conv_model.weight.numel()
     num_b = bn_model.bias.numel()
+    # 读取bn 权重
     bn_model.bias.data.copy_(torch.from_numpy(buf[start:start + num_b]));
     start = start + num_b
     bn_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_b]));
@@ -230,24 +250,12 @@ def load_conv_bn(buf, start, conv_model, bn_model):
     start = start + num_b
     bn_model.running_var.copy_(torch.from_numpy(buf[start:start + num_b]));
     start = start + num_b
+    # 读取卷积层 权重(无 偏置项)
     conv_model.weight.data.copy_(torch.from_numpy(buf[start:start + num_w]).reshape(conv_model.weight.data.shape));
     start = start + num_w
+    # 读取完成后，下标后移
     return start
 
-
-def save_conv_bn(fp, conv_model, bn_model):
-    if bn_model.bias.is_cuda:
-        convert2cpu(bn_model.bias.data).numpy().tofile(fp)
-        convert2cpu(bn_model.weight.data).numpy().tofile(fp)
-        convert2cpu(bn_model.running_mean).numpy().tofile(fp)
-        convert2cpu(bn_model.running_var).numpy().tofile(fp)
-        convert2cpu(conv_model.weight.data).numpy().tofile(fp)
-    else:
-        bn_model.bias.data.numpy().tofile(fp)
-        bn_model.weight.data.numpy().tofile(fp)
-        bn_model.running_mean.numpy().tofile(fp)
-        bn_model.running_var.numpy().tofile(fp)
-        conv_model.weight.data.numpy().tofile(fp)
 
 
 def load_fc(buf, start, fc_model):
@@ -259,9 +267,5 @@ def load_fc(buf, start, fc_model):
     start = start + num_w
     return start
 
-
-def save_fc(fp, fc_model):
-    fc_model.bias.data.numpy().tofile(fp)
-    fc_model.weight.data.numpy().tofile(fp)
 
 

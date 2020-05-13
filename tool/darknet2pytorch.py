@@ -404,26 +404,33 @@ class Darknet(nn.Module):
         fp.close()
 
         start = 0
+        # 网络层数计数
         ind = -2
         for block in self.blocks:
             if start >= buf.size:
                 break
             ind = ind + 1
+            # net模块 规定输入图像的尺度，不算网络层数
             if block['type'] == 'net':
                 continue
             elif block['type'] == 'convolutional':
                 model = self.models[ind]
+                # batch_normalize为1，则表示 使用BN
                 batch_normalize = int(block['batch_normalize'])
                 if batch_normalize:
+                    # 加载 yolov4.weights 中卷积层和BN的预训练权重
                     start = load_conv_bn(buf, start, model[0], model[1])
                 else:
+                    # 加载 yolov4.weights 中卷积层的预训练权重
                     start = load_conv(buf, start, model[0])
             elif block['type'] == 'connected':
+                # 测试阶段未调用该函数   网络无全连接层参数？
                 model = self.models[ind]
                 if block['activation'] != 'linear':
                     start = load_fc(buf, start, model[0])
                 else:
                     start = load_fc(buf, start, model)
+            # 以下操作构建网络时 均无需权重
             elif block['type'] == 'maxpool':
                 pass
             elif block['type'] == 'reorg':

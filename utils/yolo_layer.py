@@ -141,7 +141,7 @@ class YoloLayer(nn.Module):
             conf = F.sigmoid(output.index_select(2, Variable(torch.cuda.LongTensor([4]))).view(nB, nA, nH, nW))
             cls = output.index_select(2, Variable(torch.linspace(5, 5 + nC - 1, nC).long().cuda()))
             cls = cls.view(nB * nA, nC, nH * nW).transpose(1, 2).contiguous().view(nB * nA * nH * nW, nC)
-            t1 = time.time()
+
 
             pred_boxes = torch.cuda.FloatTensor(4, nB * nA * nH * nW)
             grid_x = torch.linspace(0, nW - 1, nW).repeat(nH, 1).repeat(nB * nA, 1, 1).view(nB * nA * nH * nW).cuda()
@@ -158,7 +158,7 @@ class YoloLayer(nn.Module):
             pred_boxes[2] = torch.exp(w.data) * anchor_w
             pred_boxes[3] = torch.exp(h.data) * anchor_h
             pred_boxes = convert2cpu(pred_boxes.transpose(0, 1).contiguous().view(-1, 4))
-            t2 = time.time()
+
 
             nGT, nCorrect, coord_mask, conf_mask, cls_mask, tx, ty, tw, th, tconf, tcls = build_targets(pred_boxes,
                                                                                                         target.data,
@@ -184,7 +184,7 @@ class YoloLayer(nn.Module):
             cls_mask = Variable(cls_mask.view(-1, 1).repeat(1, nC).cuda())
             cls = cls[cls_mask].view(-1, nC)
 
-            t3 = time.time()
+
 
             loss_x = self.coord_scale * nn.MSELoss(size_average=False)(x * coord_mask, tx * coord_mask) / 2.0
             loss_y = self.coord_scale * nn.MSELoss(size_average=False)(y * coord_mask, ty * coord_mask) / 2.0
@@ -193,14 +193,8 @@ class YoloLayer(nn.Module):
             loss_conf = nn.MSELoss(size_average=False)(conf * conf_mask, tconf * conf_mask) / 2.0
             loss_cls = self.class_scale * nn.CrossEntropyLoss(size_average=False)(cls, tcls)
             loss = loss_x + loss_y + loss_w + loss_h + loss_conf + loss_cls
-            t4 = time.time()
-            if False:
-                print('-----------------------------------')
-                print('        activation : %f' % (t1 - t0))
-                print(' create pred_boxes : %f' % (t2 - t1))
-                print('     build targets : %f' % (t3 - t2))
-                print('       create loss : %f' % (t4 - t3))
-                print('             total : %f' % (t4 - t0))
+
+
             print('%d: nGT %d, recall %d, proposals %d, loss: x %f, y %f, w %f, h %f, conf %f, cls %f, total %f' % (
             self.seen, nGT, nCorrect, nProposals, loss_x.data[0], loss_y.data[0], loss_w.data[0], loss_h.data[0],
             loss_conf.data[0], loss_cls.data[0], loss.data[0]))
