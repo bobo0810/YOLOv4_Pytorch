@@ -24,7 +24,7 @@ def detect(cfgfile, weightfile, imgfile):
     # 统计第二次运行结果 的时间更稳定，更具代表性
     for i in range(2):
         start = time.time()
-        #默认CPU
+        #默认CPU  conf_thresh:0.5   nms_thresh:0.4
         boxes = do_detect(m, sized, 0.5, 0.4, use_cuda)
         finish = time.time()
         if i == 1:

@@ -10,12 +10,12 @@
 # 接下来工作
  
 - [x] 推理部分注释
-- [ ] Pytorch已提供NMS官方实现，代码需精简
-
+- [x] 原生NMS精简为Pytorch官方实现（仅本仓库）
+- [ ] 原生IOU待精简
 
 # 环境
 
-| python版本 | pytorch版本 | 系统   |
+| python | pytorch | system  |
 |------------|-------------|--------|
 | 3.6        | 1.5       | Ubuntu |
 

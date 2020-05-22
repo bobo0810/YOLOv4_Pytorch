@@ -6,7 +6,7 @@ import torch
 import numpy as np
 from PIL import Image, ImageDraw
 from torch.autograd import Variable
-
+from torchvision.ops import nms as nmp_pytorch
 
 
 def sigmoid(x):
@@ -84,33 +84,84 @@ def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
     uarea = area1 + area2 - carea
     return carea / uarea
 
+def transform(boxes):
+    '''
+    将（x,y,w,h）转化为(x1, y1, x2, y2)
+    中心点坐标，宽高 -> 左上角坐标，右下角坐标
+    :param boxes:
+    :return:
+    '''
+    boxes=torch.from_numpy(boxes)
+    newBoxes=torch.zeros(size=boxes.shape).float()
+    newBoxes[:,0]=boxes[:,0]-boxes[:,2]/2
+    newBoxes[:,1]=boxes[:,1]-boxes[:,3]/2
+    newBoxes[:,2]=boxes[:,0]+boxes[:,2]/2
+    newBoxes[:,3]=boxes[:,1]+boxes[:,3]/2
+    return newBoxes
 
-def nms(boxes, nms_thresh):
-    #boxes [XXX,7]  0~3:预测bbox坐标  4:包含物体的概率   5:分类概率最大值 6:分类概率最大值的对应下标
-    # 没有符合条件的bbox,预测为空
-    if len(boxes) == 0:
-        return boxes
-    # 取出 每个bbox 对应的包含物体的概率
-    det_confs = torch.zeros(len(boxes))
+def pytorch_nms(boxes, nms_thresh):
+    '''
+    启用官方提供的NMS方法
+    思路： 数据格式改为 官方NMS方法的要求格式
+    '''
+    # boxes [XXX,7]  0~3:预测bbox坐标  4:包含物体的概率   5:分类概率最大值 6:分类概率最大值的对应下标
+    # 将最后一位的 下标值int改为float  以便将整体list转为numpy
     for i in range(len(boxes)):
-        det_confs[i] = 1 - boxes[i][4]
+        boxes[i][-1] = float(boxes[i][-1])
+    # list转numpy
+    boxes_np = np.array(boxes)
 
-    # sortIds是 所有bbox 包含物体概率值 由于 上一步的1-概率 导致结果是 从大到小排序的下标
-    _, sortIds = torch.sort(det_confs)
-    out_boxes = []
-    # 按照 包含物体概率值从大到小的顺序  将boxes装入out_boxes.
-    for i in range(len(boxes)):
-        box_i = boxes[sortIds[i]]
-        # 排除多余bbox
-        if box_i[4] > 0:
-            out_boxes.append(box_i)
-            # 在装入的过程中将当前bbox 和 剩余bbox进行NMS非极大值抑制，排除多余bbox
-            for j in range(i + 1, len(boxes)):
-                box_j = boxes[sortIds[j]]
-                # 若为多余bbox,则 将  包含物体概率值=0.下次循环时过滤掉
-                if bbox_iou(box_i, box_j, x1y1x2y2=False) > nms_thresh:
-                    box_j[4] = 0
+    # 取出bboxes坐标  规则是 中心点坐标,宽，高
+    boxes_coordinate = boxes_np[:, 0:4]
+    # 转化为 格式(x1, y1, x2, y2)
+    boxes_coordinate = transform(boxes_coordinate)
+
+    # 取出 包含物体的概率
+    score = torch.from_numpy(boxes_np[:, 4]).float()
+    # 官方方法，避免重名改为nmp_pytorch    注意：boxes_coordinate、score一定要格式一样（比如同为float32 \ float64）
+    # boxes_coordinate:Tensor[N, 4]   score:Tensor[N]    nms_thresh:float
+    bbox_index_list=nmp_pytorch(boxes_coordinate,score,nms_thresh)
+    # 经过NMS去除多余bbox后，按照 包含物体概率值从大到小的顺序 装入out_boxes.
+    out_boxes=[]
+    for index in bbox_index_list:
+        # 将最后一位的 下标值float 改回原来的int
+        boxes[index][-1] = int(boxes[index][-1])
+        out_boxes.append(boxes[index])
     return out_boxes
+
+
+
+
+# def nms(boxes, nms_thresh):
+#     '''
+#     原作者的手动实现NMS，已弃用。
+#     我已替换为pytorch提供的NMS方法，
+#     '''
+#     #boxes [XXX,7]  0~3:预测bbox坐标  4:包含物体的概率   5:分类概率最大值 6:分类概率最大值的对应下标
+#     # 没有符合条件的bbox,预测为空
+#     if len(boxes) == 0:
+#         return boxes
+#     # 取出 每个bbox 对应的包含物体的概率
+#     det_confs = torch.zeros(len(boxes))
+#     for i in range(len(boxes)):
+#         det_confs[i] = 1 - boxes[i][4]
+#
+#     # sortIds是 所有bbox 包含物体概率值 由于 上一步的1-概率 导致结果是 从大到小排序的下标
+#     _, sortIds = torch.sort(det_confs)
+#     out_boxes = []
+#     # 按照 包含物体概率值从大到小的顺序  将boxes装入out_boxes.
+#     for i in range(len(boxes)):
+#         box_i = boxes[sortIds[i]]
+#         # 排除多余bbox
+#         if box_i[4] > 0:
+#             out_boxes.append(box_i)
+#             # 在装入的过程中将当前bbox 和 剩余bbox进行NMS非极大值抑制，排除多余bbox
+#             for j in range(i + 1, len(boxes)):
+#                 box_j = boxes[sortIds[j]]
+#                 # 若为多余bbox,则 将  包含物体概率值=0.下次循环时过滤掉
+#                 if bbox_iou(box_i, box_j, x1y1x2y2=False) > nms_thresh:
+#                     box_j[4] = 0
+#     return out_boxes
 
 
 def convert2cpu(gpu_matrix):
@@ -316,7 +367,7 @@ def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
 
     if use_cuda:
         img = img.cuda()
-
+    img = torch.autograd.Variable(img)
 
     # 网络输出 三组不同尺度特征图（19x19 38x38 76x76）
     list_boxes = model(img)
@@ -338,11 +389,11 @@ def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
     if img.shape[0] > 1:
         bboxs_for_imgs = [ boxes[0][index] + boxes[1][index] + boxes[2][index] for index in range(img.shape[0])]
         # 分别对每一张图片的结果进行nms
-        boxes = [nms(bboxs, nms_thresh) for bboxs in bboxs_for_imgs]
+        boxes = [pytorch_nms(bboxs, nms_thresh) for bboxs in bboxs_for_imgs]
     # 单张图像预测
     else:
         boxes = boxes[0][0] + boxes[1][0] + boxes[2][0]
         # pytorch现已提供 原生NMS方法，我以后修改
-        boxes = nms(boxes, nms_thresh)
+        boxes = pytorch_nms(boxes, nms_thresh)
     return boxes
 
