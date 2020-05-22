@@ -86,23 +86,29 @@ def bbox_ious(boxes1, boxes2, x1y1x2y2=True):
 
 
 def nms(boxes, nms_thresh):
+    #boxes [XXX,7]  0~3:预测bbox坐标  4:包含物体的概率   5:分类概率最大值 6:分类概率最大值的对应下标
+    # 没有符合条件的bbox,预测为空
     if len(boxes) == 0:
         return boxes
-
+    # 取出 每个bbox 对应的包含物体的概率
     det_confs = torch.zeros(len(boxes))
     for i in range(len(boxes)):
         det_confs[i] = 1 - boxes[i][4]
 
+    # sortIds是 所有bbox 包含物体概率值 由于 上一步的1-概率 导致结果是 从大到小排序的下标
     _, sortIds = torch.sort(det_confs)
     out_boxes = []
+    # 按照 包含物体概率值从大到小的顺序  将boxes装入out_boxes.
     for i in range(len(boxes)):
         box_i = boxes[sortIds[i]]
+        # 排除多余bbox
         if box_i[4] > 0:
             out_boxes.append(box_i)
+            # 在装入的过程中将当前bbox 和 剩余bbox进行NMS非极大值抑制，排除多余bbox
             for j in range(i + 1, len(boxes)):
                 box_j = boxes[sortIds[j]]
+                # 若为多余bbox,则 将  包含物体概率值=0.下次循环时过滤掉
                 if bbox_iou(box_i, box_j, x1y1x2y2=False) > nms_thresh:
-                    # print(box_i, box_j, bbox_iou(box_i, box_j, x1y1x2y2=False))
                     box_j[4] = 0
     return out_boxes
 
@@ -117,36 +123,39 @@ def convert2cpu_long(gpu_matrix):
 def get_region_boxes(output, conf_thresh, num_classes, anchors, num_anchors, only_objectness=1, validation=False):
     '''
      # 对某一尺度特征图 提取bbox
-    :param output:  19x19 38x38 76x76其中一种尺度特征图
+    :param output:  19x19 38x38 76x76其中一种尺度特征图  eg:[1,255,76,76]
     :param conf_thresh: 类别置信度
     :param num_classes:   80：COCO类别数
     :param anchors: anchors具体尺度
-    :param num_anchors:  anchors的种类
+    :param num_anchors:  一个单元格要预测的不同尺度anchor数量
     :param only_objectness:
     :param validation:
     :return:
     '''
     anchor_step = len(anchors) // num_anchors
+    # eg：若output为[255,76,76]，则扩展一维，变为[1,255,76,76]
     if len(output.shape) == 3:
         output = np.expand_dims(output, axis=0)
     batch = output.shape[0]
-    assert (output.shape[1] == (5 + num_classes) * num_anchors)
+    # 验证特征图是否合规    每个单元格（特征图的一个元素）预测3（num_anchors）个anchor, 每个anchor需要同时提供 4+1+80（4：anchor坐标，1:包含物体的概率以过滤背景，80：数据集的类别）
+    # 网络预测[1,255,76,76]   [76,76]指一张特征图   255:(4+1+80)x3网络预测的坐标和分类概率
+    assert (output.shape[1] == (4+1 + num_classes) * num_anchors)
     h = output.shape[2]
     w = output.shape[3]
-
-    t0 = time.time()
+    # 保存最终bbox
     all_boxes = []
+    # output[85,17328]
     output = output.reshape(batch * num_anchors, 5 + num_classes, h * w).transpose((1, 0, 2)).reshape(
         5 + num_classes,
         batch * num_anchors * h * w)
-
+    # grid_x,grid_y均是0~75   预测时的左上角坐标
     grid_x = np.expand_dims(np.expand_dims(np.linspace(0, w - 1, w), axis=0).repeat(h, 0), axis=0).repeat(
         batch * num_anchors, axis=0).reshape(
         batch * num_anchors * h * w)
     grid_y = np.expand_dims(np.expand_dims(np.linspace(0, h - 1, h), axis=0).repeat(w, 0).T, axis=0).repeat(
         batch * num_anchors, axis=0).reshape(
         batch * num_anchors * h * w)
-
+    # xs，ys 即单元格中anchor的中心点坐标=网格左上角坐标 + 相对网格左上角坐标的偏移量（网络预测的anchor坐标 前两个即相对网格左上角坐标的偏移量）
     xs = sigmoid(output[0]) + grid_x
     ys = sigmoid(output[1]) + grid_y
 
@@ -156,40 +165,49 @@ def get_region_boxes(output, conf_thresh, num_classes, anchors, num_anchors, onl
         .repeat(h * w, axis=2).transpose(1, 0, 2).reshape(batch * num_anchors * h * w)
     anchor_h = np.expand_dims(np.expand_dims(anchor_h, axis=1).repeat(batch, 1), axis=2) \
         .repeat(h * w, axis=2).transpose(1, 0, 2).reshape(batch * num_anchors * h * w)
+    # ws,hs 即 在anchor中心点上的宽、高
     ws = np.exp(output[2]) * anchor_w
     hs = np.exp(output[3]) * anchor_h
 
+    # 包含物体的概率，以过滤背景
     det_confs = sigmoid(output[4])
-
+    # 80个类别的分类概率
     cls_confs = softmax(output[5:5 + num_classes].transpose(1, 0))
+    # 80个类别概率中  最大的概率值
     cls_max_confs = np.max(cls_confs, 1)
+    # 80个类别概率中  最大概率值的下标，用于确定具体类别名称
     cls_max_ids = np.argmax(cls_confs, 1)
-    t1 = time.time()
 
     sz_hw = h * w
     sz_hwa = sz_hw * num_anchors
-    t2 = time.time()
     for b in range(batch):
+        # 一张输入图片 对应的预测bbox
         boxes = []
         for cy in range(h):
             for cx in range(w):
+                # [76,76]特征图的每个元素  预测3个anchor
                 for i in range(num_anchors):
                     ind = b * sz_hwa + i * sz_hw + cy * w + cx
+                    # 找到对应的 包含物体的概率det_conf
                     det_conf = det_confs[ind]
+                    # 包含物体的概率
                     if only_objectness:
                         conf = det_confs[ind]
                     else:
                         conf = det_confs[ind] * cls_max_confs[ind]
+                    # 当 包含物体的概率  大于设定阈值时，则需要该anchor
 
                     if conf > conf_thresh:
-                        # 左上角坐标 bcx bcy及 宽高bw bh
+                        # anchor中心点坐标 bcx bcy及 对应的宽高bw bh
                         bcx = xs[ind]
                         bcy = ys[ind]
                         bw = ws[ind]
                         bh = hs[ind]
-                        # 分类最大置信度
+                        # 该anchor 在80个分类中概率值的最大值
                         cls_max_conf = cls_max_confs[ind]
+                        # 该anchor 在80个分类中概率值的最大值的下标
                         cls_max_id = cls_max_ids[ind]
+                        # [bcx / w, bcy / h, bw / w, bh / h]:预测bbox坐标       det_conf:包含物体的概率   cls_max_conf:分类概率最大值 cls_max_id:分类概率最大值的对应下标
                         box = [bcx / w, bcy / h, bw / w, bh / h, det_conf, cls_max_conf, cls_max_id]
                         if (not only_objectness) and validation:
                             for c in range(num_classes):
@@ -199,13 +217,6 @@ def get_region_boxes(output, conf_thresh, num_classes, anchors, num_anchors, onl
                                     box.append(c)
                         boxes.append(box)
         all_boxes.append(boxes)
-    t3 = time.time()
-    if False:
-        print('---------------------------------')
-        print('matrix computation : %f' % (t1 - t0))
-        print('        gpu to cpu : %f' % (t2 - t1))
-        print('      boxes filter : %f' % (t3 - t2))
-        print('---------------------------------')
     return all_boxes
 
 def plot_boxes(img, boxes, savename=None, class_names=None):
@@ -305,8 +316,7 @@ def do_detect(model, img, conf_thresh, nms_thresh, use_cuda=1):
 
     if use_cuda:
         img = img.cuda()
-    # Variable与tensor已经合并，我以后修改
-    img = torch.autograd.Variable(img)
+
 
     # 网络输出 三组不同尺度特征图（19x19 38x38 76x76）
     list_boxes = model(img)
