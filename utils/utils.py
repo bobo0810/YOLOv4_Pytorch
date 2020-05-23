@@ -20,6 +20,10 @@ def softmax(x):
 
 
 def bbox_iou(box1, box2, x1y1x2y2=True):
+    '''
+    Pytorch 1.5源码提供box_iou方法，但未公布该api.
+    该方法主要在训练时使用，暂不去除.
+    '''
     if x1y1x2y2:
         mx = min(box1[0], box2[0])
         Mx = max(box1[2], box2[2])
@@ -101,8 +105,8 @@ def transform(boxes):
 
 def pytorch_nms(boxes, nms_thresh):
     '''
-    启用官方提供的NMS方法
-    思路： 数据格式改为 官方NMS方法的要求格式
+    Pytorch提供NMS方法
+    思路： 数据格式改为 Pytorch NMS的参数格式后调用即可
     '''
     # boxes [XXX,7]  0~3:预测bbox坐标  4:包含物体的概率   5:分类概率最大值 6:分类概率最大值的对应下标
     # 将最后一位的 下标值int改为float  以便将整体list转为numpy
@@ -113,7 +117,7 @@ def pytorch_nms(boxes, nms_thresh):
 
     # 取出bboxes坐标  规则是 中心点坐标,宽，高
     boxes_coordinate = boxes_np[:, 0:4]
-    # 转化为 格式(x1, y1, x2, y2)
+    #(x,y,w,h) 转化为 格式(x1, y1, x2, y2)
     boxes_coordinate = transform(boxes_coordinate)
 
     # 取出 包含物体的概率
@@ -128,8 +132,6 @@ def pytorch_nms(boxes, nms_thresh):
         boxes[index][-1] = int(boxes[index][-1])
         out_boxes.append(boxes[index])
     return out_boxes
-
-
 
 
 # def nms(boxes, nms_thresh):

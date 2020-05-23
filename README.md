@@ -5,13 +5,12 @@
 # 说明
 - 非常感谢[Tianxiaomo](https://github.com/Tianxiaomo)等大佬的工作
 - [原仓库](https://github.com/Tianxiaomo/pytorch-YOLOv4)的训练模块未更新完毕，正在跟进
-- 源码基于yolov3源码修改，看过我之前yolov3注释就很容易理解
+- 源码基于[yolov3](https://github.com/bobo0810/PytorchNetHub/tree/master/Yolov3_pytorch)源码修改，有基础更易理解
 
 # 接下来工作
  
 - [x] 推理部分注释
-- [x] 原生NMS精简为Pytorch官方实现（仅本仓库）
-- [ ] 原生IOU待精简
+- [x] 原生NMS精简为Pytorch官方接口（仅本仓库）
 
 # 环境
 
